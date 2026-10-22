@@ -62,7 +62,7 @@ def prepare_base(train, test):
 
 
 def fit_predict(prepare, train, test, scaler=StandardScaler(), encoder=None, model=None,
-                select=None, threshold=None):
+                select=None, threshold=None, proba=False):
     """Prepara, treina no `train` e devolve as previsões (0 ou 1) para o `test`.
 
     Tudo é ajustado só no `train`: `prepare`, o encoder e o scaler.
@@ -73,6 +73,8 @@ def fit_predict(prepare, train, test, scaler=StandardScaler(), encoder=None, mod
     seletor, ajustado só no treino depois do encoder e do scaler (W4: `select` do
     heldout_f1). `threshold=None` usa o predict do modelo (limiar 0.5); com um número,
     prevê 1 quando a probabilidade da classe 1 chega a esse limiar (W5, secção 2.7).
+    `proba=True` devolve essa probabilidade em vez dos rótulos, para escolher o limiar na
+    curva precision-recall (W5, Steps 39 a 42, o `y_pred_proba_val`).
     O `test` não precisa de ter o alvo.
     """
     train, test = prepare(train, test)
@@ -95,6 +97,8 @@ def fit_predict(prepare, train, test, scaler=StandardScaler(), encoder=None, mod
     if model is None:
         model = LogisticRegression(max_iter=1000, random_state=RANDOM_STATE)
     model.fit(a, train[TARGET])
+    if proba:
+        return model.predict_proba(b)[:, 1]
     if threshold is None:
         return model.predict(b)
     return (model.predict_proba(b)[:, 1] >= threshold).astype(int)
