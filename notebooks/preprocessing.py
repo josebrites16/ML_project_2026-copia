@@ -1,8 +1,8 @@
-"""A preparação final das tarefas 2 e 3 e a régua de avaliação, num só sítio.
+"""The final preparation and the evaluation ruler, in one place.
 
-Como o preprocessing.py das práticas (W5 a W9): as decisões tomadas num notebook passam ao
-seguinte por um ficheiro que todos importam. As experiências e as justificações ficam no
-02_preprocessing.ipynb; aqui fica só o que foi escolhido.
+The decisions made in one notebook reach the next through this file, which they all
+import. The experiments and their justification live in 02_preprocessing.ipynb; this
+file only holds what was chosen.
 """
 import numpy as np
 import pandas as pd
@@ -16,28 +16,27 @@ RANDOM_STATE = 42
 TARGET = "repeat_purchase_90d"
 GROUP = "customer_id"
 DATE = "purchase_date"
-OUT_OF_MODEL = [GROUP, DATE]   # ficam na tabela, mas nunca entram no modelo
-METRIC = "f1"                  # métrica que decide (escolhida pela equipa na tarefa 3);
-                               # a accuracy aparece ao lado, só como informação
+OUT_OF_MODEL = [GROUP, DATE]   # kept in the table, never given to the model
+METRIC = "f1"                  # the metric that decides; accuracy is shown beside it
 
 
-# ----------------------------------------------------------------------------- 2.0 base comum
+# ----------------------------------------------------------------------------- data, splits and evaluation
 def load_train(path):
-    """Passo 1: o train.csv ordenado por data (W5, secção 3.4), sem as linhas sem data."""
+    """train.csv sorted by date, without the rows that have no date."""
     raw = pd.read_csv(path, index_col="ID")
     known_time = raw[DATE].notna()
-    # kind="stable" mantém pela ordem do ficheiro as compras do mesmo dia (W5)
+    # kind="stable" keeps purchases from the same day in file order
     time_order = raw.loc[known_time, DATE].sort_values(kind="stable").index
     return raw, raw.loc[time_order]
 
 
 def time_splits(frame):
-    """Passo 3: 5 divisões por tempo; cada uma treina no passado e valida no que vem a seguir."""
+    """5 time-based splits: each one trains on the past and validates on what comes next."""
     return list(TimeSeriesSplit(n_splits=5).split(frame))
 
 
 def model_columns(frame):
-    """Colunas que o modelo vê: numéricas e categóricas (sem alvo, cliente e data)."""
+    """The columns the model sees: numeric and categorical (no target, customer or date)."""
     features = [c for c in frame.columns if c not in OUT_OF_MODEL + [TARGET]]
     numeric = [c for c in features if pd.api.types.is_numeric_dtype(frame[c])]
     categorical = [c for c in features if c not in numeric]
@@ -45,12 +44,12 @@ def model_columns(frame):
 
 
 def as_object(block):
-    """O scikit-learn lê np.nan como nulo, mas não pd.NA: tudo passa a np.nan (W3)."""
+    """scikit-learn reads np.nan as a gap but not pd.NA, so every gap becomes np.nan."""
     return block.astype(object).fillna(np.nan).infer_objects()
 
 
 def prepare_base(train, test):
-    """Linha de base: mediana nas numéricas e moda nas categóricas, ajustadas só no treino."""
+    """Baseline: median for numeric and mode for categorical columns, fitted on train only."""
     train, test = train.copy(), test.copy()
     numeric, categorical = model_columns(train)
     imputer = SimpleImputer(strategy="median").fit(train[numeric])
@@ -63,24 +62,22 @@ def prepare_base(train, test):
 
 def fit_predict(prepare, train, test, scaler=StandardScaler(), encoder=None, model=None,
                 select=None, threshold=None, proba=False):
-    """Prepara, treina no `train` e devolve as previsões (0 ou 1) para o `test`.
+    """Prepare, train on `train` and return the predictions (0 or 1) for `test`.
 
-    Tudo é ajustado só no `train`: `prepare`, o encoder e o scaler.
-    `scaler=None` não escala. `encoder=None` é o one-hot da linha de base; o 2.3 passa
-    outros. O encoder recebe também o alvo do treino, que só o target encoding usa
-    (W4, passo 5). `model=None` é a regressão logística da linha de base; as tarefas
-    3 e 4 passam outros modelos. `select=None` usa todas as colunas; a tarefa 3 passa um
-    seletor, ajustado só no treino depois do encoder e do scaler (W4: `select` do
-    heldout_f1). `threshold=None` usa o predict do modelo (limiar 0.5); com um número,
-    prevê 1 quando a probabilidade da classe 1 chega a esse limiar (W5, secção 2.7).
-    `proba=True` devolve essa probabilidade em vez dos rótulos, para escolher o limiar na
-    curva precision-recall (W5, Steps 39 a 42, o `y_pred_proba_val`).
-    O `test` não precisa de ter o alvo.
+    Everything is fitted on `train` only: `prepare`, the encoder and the scaler.
+    `scaler=None` does not scale. `encoder=None` is the baseline one-hot; other encoders can
+    be passed. The encoder also receives the training target, which only target encoding uses.
+    `model=None` is the baseline logistic regression; other models can be passed.
+    `select=None` keeps every column; a selector can be passed, fitted on train only after
+    the encoder and the scaler. `threshold=None` uses the model's predict (threshold 0.5);
+    with a number, it predicts 1 when the probability of class 1 reaches that threshold.
+    `proba=True` returns that probability instead of labels, to choose the threshold on the
+    precision-recall curve. `test` does not need the target.
     """
     train, test = prepare(train, test)
     numeric, categorical = model_columns(train)
     if encoder is None:
-        # handle_unknown="ignore": um nível que só aparece no test fica a zeros
+        # handle_unknown="ignore": a level that only appears in test becomes all zeros
         encoder = OneHotEncoder(handle_unknown="ignore", sparse_output=False)
     encoder.fit(as_object(train[categorical]), train[TARGET])
     a = np.hstack([train[numeric], encoder.transform(as_object(train[categorical]))])
@@ -89,7 +86,7 @@ def fit_predict(prepare, train, test, scaler=StandardScaler(), encoder=None, mod
         scaler.fit(a)
         a, b = scaler.transform(a), scaler.transform(b)
     if select is not None:
-        # com os nomes das colunas, como na W4, para se saber depois quais ficaram
+        # with column names, so we can tell later which ones were kept
         names = numeric + list(encoder.get_feature_names_out())
         select.fit(pd.DataFrame(a, columns=names), train[TARGET])
         a = select.transform(pd.DataFrame(a, columns=names))
@@ -106,10 +103,10 @@ def fit_predict(prepare, train, test, scaler=StandardScaler(), encoder=None, mod
 
 def evaluate(prepare, frame, splits, scaler=StandardScaler(), encoder=None, model=None,
              select=None, threshold=None):
-    """F1 e accuracy de uma alternativa `prepare(train, test)` em cada divisão.
+    """F1 and accuracy of one alternative `prepare(train, test)` on each split.
 
-    Em cada divisão o modelo treina no treino e prevê a validação (fit_predict).
-    Como o `held_out_f1` da W3.
+    On each split the model trains on the training rows and predicts the validation rows
+    (fit_predict).
     """
     rows = []
     for train_idx, val_idx in splits:
@@ -118,22 +115,22 @@ def evaluate(prepare, frame, splits, scaler=StandardScaler(), encoder=None, mode
         row = {"f1": f1_score(test[TARGET], predicted),
                "accuracy": accuracy_score(test[TARGET], predicted)}
         if select is not None:
-            # as colunas que o seletor manteve nesta divisão (W4: `kept`)
+            # the columns the selector kept on this split
             row["kept"] = list(select.get_feature_names_out())
-            row["colunas"] = len(row["kept"])
+            row["columns"] = len(row["kept"])
         rows.append(row)
     return pd.DataFrame(rows)
 
 
 def sem(values):
-    """Erro-padrão da média: quanto a média mudaria com outras divisões (W3)."""
+    """Standard error of the mean: how much the mean would move with other splits."""
     return values.std(ddof=1) / np.sqrt(len(values))
 
 
 def compare(runs, reference, metric=METRIC):
-    """Cada alternativa contra a linha de base, nas mesmas divisões (como na W3).
+    """Each alternative against the reference, on the same splits.
 
-    Uma diferença menor do que 2 x SEM é ruído.
+    A difference smaller than 2 x SEM is noise.
     """
     table = {}
     for name, run in runs.items():
@@ -142,31 +139,31 @@ def compare(runs, reference, metric=METRIC):
                        "accuracy": run["accuracy"].mean(),
                        "vs base": difference.mean(),
                        "SEM": sem(difference),
-                       "melhor em": f"{int((difference > 0).sum())} de {len(difference)}"}
+                       "better on": f"{int((difference > 0).sum())} of {len(difference)}"}
     return pd.DataFrame(table).T
 
 
 def verdict(table):
-    """melhor / pior se a diferença passar os 2 x SEM, senão empata (a regra da tarefa 2)."""
-    return np.where(table["vs base"] > 2 * table["SEM"], "melhor",
-                    np.where(table["vs base"] < -2 * table["SEM"], "pior", "empata"))
+    """better / worse if the difference passes 2 x SEM, otherwise tie."""
+    return np.where(table["vs base"] > 2 * table["SEM"], "better",
+                    np.where(table["vs base"] < -2 * table["SEM"], "worse", "tie"))
 
 
-# ----------------------------------------------------------------------------- 2.1 valores impossíveis
-# Regras de domínio da EDA (passos 9 a 11): True onde o valor é impossível
+# ----------------------------------------------------------------------------- impossible values
+# Domain rules from the EDA: True where the value is impossible
 invalid_errors = {
-    "days_since_previous_purchase": lambda values: values < 0,          # dias negativos (-4)
-    "prior_mean_gap_days": lambda values: values < 0,                   # dias negativos (-4)
+    "days_since_previous_purchase": lambda values: values < 0,          # negative days (-4)
+    "prior_mean_gap_days": lambda values: values < 0,                   # negative days (-4)
     "prior_mean_purchase_value": lambda values: (values < 0) | (values == 1e9),
     "spend_365d": lambda values: (values < 0) | (values == 1e9),
 }
 
 
 def invalid_flags(frame):
-    """Uma coluna por regra, True onde o valor é impossível (como o domain_flags da W3).
+    """One column per rule, True where the value is impossible.
 
-    Mais a regra de duas colunas da EDA: uma média de compras não pode ser maior
-    do que a maior dessas compras.
+    Plus the two-column rule from the EDA: the mean of a customer's purchases cannot be
+    larger than the largest of those purchases.
     """
     flags = pd.concat([rule(frame[c]) for c, rule in invalid_errors.items()], axis=1)
     flags["prior_mean_purchase_value"] |= (frame["prior_mean_purchase_value"]
@@ -175,17 +172,18 @@ def invalid_flags(frame):
 
 
 def blank_invalid(frame):
-    """Os valores impossíveis passam a NaN (W3: "blank the cell").
+    """Impossible values become NaN.
 
-    Não aprende nada com os dados, por isso aplica-se igual ao treino, à validação e ao teste.
+    It learns nothing from the data, so it is applied the same way to train, validation
+    and test.
     """
     out = frame.copy()
     out[list(invalid_errors)] = out[list(invalid_errors)].mask(invalid_flags(frame))
     return out
 
 
-# ----------------------------------------------------------------------------- 2.4 distribuições e escala
-# As numéricas com cauda longa (EDA, passo 7): todas menos random_noise e customer_tenure_days
+# ----------------------------------------------------------------------------- long tails
+# The numeric columns with a long right tail (EDA): all but random_noise and customer_tenure_days
 SKEWED = ["Total a Pagar", "Total Bruto", "Total Liquido", "Total Imp_", "Total Portes",
           "Total Desc_ Global", "Total Desc_ Linha", "Custo", "N_ Detalhes",
           "invoice_count_current_purchase", "days_since_previous_purchase",
@@ -197,28 +195,28 @@ SKEWED = ["Total a Pagar", "Total Bruto", "Total Liquido", "Total Imp_", "Total 
 
 
 def prepare_log1p(train, test):
-    """log1p nas colunas com cauda longa (W3, célula 100: log1p_of).
+    """log1p on the long-tailed columns.
 
-    Não aprende nada com os dados, por isso aplica-se igual ao treino e ao teste.
+    It learns nothing from the data, so it is applied the same way to train and test.
     """
     train, test = blank_invalid(train), blank_invalid(test)
     train[SKEWED], test[SKEWED] = np.log1p(train[SKEWED]), np.log1p(test[SKEWED])
     return prepare_base(train, test)
 
 
-# ----------------------------------------------------------------------------- 2.7 preparação final
-prepare_final = prepare_log1p   # valores impossíveis -> nulo, log1p, mediana / moda
-ENCODER_FINAL = None            # None = one-hot com handle_unknown="ignore"
+# ----------------------------------------------------------------------------- final preparation
+prepare_final = prepare_log1p   # impossible values -> null, log1p, median / mode
+ENCODER_FINAL = None            # None = one-hot with handle_unknown="ignore"
 SCALER_FINAL = MinMaxScaler()
 
 
-# ----------------------------------------------------------------------------- 3.4 / 3.5 seleção
+# ----------------------------------------------------------------------------- final feature set
 def prepare_without(columns):
-    """prepare_final e depois retira `columns`, antes do one-hot e do modelo.
+    """prepare_final, then remove `columns`, before the one-hot and the model.
 
-    Retirar depois da preparação dá o mesmo que retirar antes (a mediana, a moda e o log1p de
-    cada coluna não dependem das outras) e mantém a lista SKEWED do log1p e a regra de
-    valores impossíveis do 2.1, que usa prior_max_purchase_value, tal como estavam.
+    Removing after the preparation gives the same result as removing before (the median,
+    mode and log1p of a column do not depend on the others), and it keeps the SKEWED list
+    and the impossible-value rule, which uses prior_max_purchase_value, unchanged.
     """
     def prepare(train, test):
         train, test = prepare_final(train, test)
@@ -226,10 +224,10 @@ def prepare_without(columns):
     return prepare
 
 
-# As 14 colunas que a tarefa 3 retira (passos 48 a 51 e 60)
-DROP_34 = ["Custo", "Total Bruto", "Total Imp_", "Total Liquido", "commercial_zone",
+# The 14 columns removed by feature selection
+DROPPED_COLUMNS = ["Custo", "Total Bruto", "Total Imp_", "Total Liquido", "commercial_zone",
            "prior_purchase_count", "prior_std_gap_days", "prior_std_purchase_value",
            "purchase_count_180d", "purchase_count_30d", "purchase_count_365d", "random_noise",
            "spend_180d", "transport_method"]
-prepare_selected = prepare_without(DROP_34)
-SELECT_FINAL = None             # nenhum seletor por cima: as colunas já estão escolhidas
+prepare_selected = prepare_without(DROPPED_COLUMNS)
+SELECT_FINAL = None             # no selector on top: the columns are already chosen
